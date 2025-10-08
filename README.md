@@ -109,7 +109,7 @@ According to [shigabeev](https://github.com/shigabeev)'s [experiment](https://gi
 ## Training Example
 ```sh
 # train_ms.py for multi speaker
-python train.py -c configs/mb_istft_vits2_base.json -m models/test
+CUDA_VISIBLE_DEVICES=1,2 python train.py -c configs/mbank.json -m logs
 ```
 
 ## Credits
