@@ -16,16 +16,38 @@ def stft(x, fft_size, hop_size, win_length, window):
         fft_size (int): FFT size.
         hop_size (int): Hop size.
         win_length (int): Window length.
-        window (str): Window function type.
+        window (Tensor): Window tensor.
     Returns:
         Tensor: Magnitude spectrogram (B, #frames, fft_size // 2 + 1).
     """
-    x_stft = torch.stft(x, fft_size, hop_size, win_length, window.to(x.device))
-    real = x_stft[..., 0]
-    imag = x_stft[..., 1]
+    # The new torch.stft requires return_complex=True and uses different argument names
+    x_stft_complex = torch.stft(
+        x,
+        n_fft=fft_size,
+        hop_length=hop_size,
+        win_length=win_length,
+        window=window.to(x.device),
+        return_complex=True
+    )
 
-    # NOTE(kan-bayashi): clamp is needed to avoid nan or inf
-    return torch.sqrt(torch.clamp(real ** 2 + imag ** 2, min=1e-7)).transpose(2, 1)
+    # The output is now a complex tensor. We calculate the magnitude
+    # by taking the absolute value.
+    # The original code calculated sqrt(clamp(real^2 + imag^2)).
+    # This is equivalent to sqrt(clamp(magnitude^2)).
+    # We replicate this for numerical stability.
+
+    # 1. Get the squared magnitude
+    magnitudes_sq = x_stft_complex.abs().pow(2)
+
+    # 2. Clamp the squared magnitude to avoid NaN in sqrt's backward pass
+    magnitudes_sq_clamped = torch.clamp(magnitudes_sq, min=1e-7)
+
+    # 3. Take the square root to get the magnitude
+    magnitudes = torch.sqrt(magnitudes_sq_clamped)
+
+    # The output of torch.stft is (B, F, T), but the model expects (B, T, F).
+    # So we transpose the last two dimensions.
+    return magnitudes.transpose(1, 2)
 
 
 class SpectralConvergengeLoss(torch.nn.Module):
