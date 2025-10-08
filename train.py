@@ -16,11 +16,9 @@ import tqdm
 from pqmf import PQMF
 import commons
 import utils
-from data_utils import (
-    TextAudioLoader,
-    TextAudioCollate,
-    DistributedBucketSampler
-)
+from data_utils import DistributedBucketSampler
+from data_utils_multispeker_multitone import TextAudioSpeakerToneLoader, TextAudioSpeakerToneCollate
+
 from models import (
     SynthesizerTrn,
     MultiPeriodDiscriminator,
@@ -83,7 +81,7 @@ def run(rank, n_gpus, hps):
         posterior_channels = hps.data.filter_length // 2 + 1
         hps.data.use_mel_posterior_encoder = False
 
-    train_dataset = TextAudioLoader(hps.data.training_files, hps.data)
+    train_dataset = TextAudioSpeakerToneLoader(hps.data.training_files, hps.data)
     train_sampler = DistributedBucketSampler(
         train_dataset,
         hps.train.batch_size,
@@ -92,11 +90,11 @@ def run(rank, n_gpus, hps):
         rank=rank,
         shuffle=True)
 
-    collate_fn = TextAudioCollate()
+    collate_fn = TextAudioSpeakerToneCollate()
     train_loader = DataLoader(train_dataset, num_workers=8, shuffle=False, pin_memory=True,
                               collate_fn=collate_fn, batch_sampler=train_sampler)
     if rank == 0:
-        eval_dataset = TextAudioLoader(hps.data.validation_files, hps.data)
+        eval_dataset = TextAudioSpeakerToneLoader(hps.data.validation_files, hps.data)
         eval_loader = DataLoader(eval_dataset, num_workers=1, shuffle=False,
                                  batch_size=hps.train.batch_size, pin_memory=True,
                                  drop_last=False, collate_fn=collate_fn)
