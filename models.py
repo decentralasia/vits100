@@ -1287,7 +1287,8 @@ class SynthesizerTrn(nn.Module):
                  upsample_kernel_sizes,
                  gen_istft_n_fft,
                  gen_istft_hop_size,
-                 n_speakers=0,
+                 n_speakers=1,
+                 n_tones=1,
                  gin_channels=0,
                  use_sdp=True,
                  ms_istft_vits=False,
@@ -1395,12 +1396,65 @@ class SynthesizerTrn(nn.Module):
         #- options for MAS : "sma_v1", "sma_v2", "sma_triton", "ma"
         self.monotonic_align = kwargs.get("monotonic_align", "ma").lower()
 
-    def forward(self, x, x_lengths, y, y_lengths, sid=None):
-        # x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths)
-        if self.n_speakers > 0:
-            g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
+
+        # My modifications (kenenbek)
+        self.n_tones = n_tones
+        # Optional conditioning embeddings. Each produces a vector in R^{gin_channels}.
+        self.emb_speaker = nn.Embedding(n_speakers, gin_channels) if (
+                n_speakers is not None and n_speakers > 1 and gin_channels > 0) else None
+        self.emb_tone = nn.Embedding(n_tones, gin_channels) if (
+                n_tones is not None and n_tones > 1 and gin_channels > 0) else None
+        # If both embeddings exist, we'll concatenate and project back to gin_channels.
+        if (self.emb_speaker is not None) and (self.emb_tone is not None):
+            self.g_proj = nn.Conv1d(2 * gin_channels, gin_channels, 1)
         else:
-            g = None
+            self.g_proj = None
+
+    def _build_g(self, sid=None, tid=None):
+        """
+        Build conditioning vector g with shape [B, gin_channels, 1] using concatenation of
+        speaker and tone embeddings (if both exist). When both embeddings exist, they are
+        concatenated along channel dim and projected back to gin_channels.
+        If neither id is provided, returns None.
+        """
+        if self.gin_channels == 0:
+            return None
+
+        # Case 1: both embeddings exist -> concatenate (with zero fill if an id is missing)
+        if (self.emb_speaker is not None) and (self.emb_tone is not None):
+            if (sid is None) and (tid is None):
+                return None
+            # Determine batch size and device from whichever id is provided
+            if sid is not None:
+                B = sid.shape[0]
+                dev = sid.device
+            else:
+                B = tid.shape[0]
+                dev = tid.device
+            dtype = self.emb_speaker.weight.dtype
+            spk = self.emb_speaker(sid) if sid is not None else torch.zeros(B, self.gin_channels, device=dev,
+                                                                            dtype=dtype)
+            tone = self.emb_tone(tid) if tid is not None else torch.zeros(B, self.gin_channels, device=dev, dtype=dtype)
+            g_cat = torch.cat([spk, tone], dim=1).unsqueeze(-1)  # [B, 2*gin, 1]
+            if self.g_proj is not None:
+                g = self.g_proj(g_cat)  # [B, gin, 1]
+            else:
+                # Fallback (should not happen in this branch)
+                g = g_cat[:, :self.gin_channels, :]
+            return g
+
+        # Case 2: only one embedding exists -> return that embedding if id provided
+        if (self.emb_speaker is not None) and (sid is not None):
+            return self.emb_speaker(sid).unsqueeze(-1)
+        if (self.emb_tone is not None) and (tid is not None):
+            return self.emb_tone(tid).unsqueeze(-1)
+
+        # No conditioning available
+        return None
+
+    def forward(self, x, x_lengths, y, y_lengths, sid=None, tid=None):
+        # x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths)
+        g = self._build_g(sid=sid, tid=tid)
 
         x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths, g=g)  # vits2?
         z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g)
