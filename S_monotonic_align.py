@@ -3,7 +3,7 @@ import torch
 
 
 @torch.no_grad()
-@torch.jit.script
+#@torch.jit.script
 def maximum_path1(logp: torch.Tensor, attn_mask: torch.Tensor): # V1
     # logp: [B, Tx, Ty], attn_mask: [B, Tx, Ty]
     B, Tx, Ty = logp.size()
@@ -47,7 +47,7 @@ def maximum_path1(logp: torch.Tensor, attn_mask: torch.Tensor): # V1
     return path
 
 
-@torch.no_grad()
+#@torch.no_grad()
 def maximum_path2(logp: torch.Tensor, attn_mask: torch.Tensor): # V2
     @torch.jit.script
     def cumulative_logp(logp, attn_mask):
