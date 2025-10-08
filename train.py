@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 import tqdm
 from pqmf import PQMF
 import commons
@@ -227,7 +227,7 @@ def run(rank, n_gpus, hps):
     else:
         scheduler_dur_disc = None
 
-    scaler = GradScaler(enabled=hps.train.fp16_run)
+    scaler = GradScaler("cuda", enabled=hps.train.fp16_run)
 
     for epoch in range(epoch_str, hps.train.epochs + 1):
         if rank == 0:
@@ -273,7 +273,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         y, y_lengths = y.cuda(rank, non_blocking=True), y_lengths.cuda(rank, non_blocking=True)
         sid, tid = sid.cuda(non_blocking=True), tid.cuda(non_blocking=True)
 
-        with autocast(enabled=hps.train.fp16_run):
+        with autocast("cuda", enabled=hps.train.fp16_run):
             y_hat, y_hat_mb, l_length, attn, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q), (
                 hidden_x, logw, logw_) = net_g(x, x_lengths, spec, spec_lengths, sid=sid, tid=tid)
 
@@ -304,7 +304,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 
             # Discriminator
             y_d_hat_r, y_d_hat_g, _, _ = net_d(y, y_hat.detach())
-            with autocast(enabled=False):
+            with autocast("cuda", enabled=False):
                 loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
                 loss_disc_all = loss_disc
 
@@ -312,7 +312,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
             if net_dur_disc is not None:
                 y_dur_hat_r, y_dur_hat_g = net_dur_disc(hidden_x.detach(), x_mask.detach(), logw_.detach(),
                                                         logw.detach())  # logw is predicted duration, logw_ is real duration
-                with autocast(enabled=False):
+                with autocast("cuda", enabled=False):
                     # TODO: I think need to mean using the mask, but for now, just mean all
                     loss_dur_disc, losses_dur_disc_r, losses_dur_disc_g = discriminator_loss(y_dur_hat_r, y_dur_hat_g)
                     loss_dur_disc_all = loss_dur_disc
@@ -328,12 +328,12 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         grad_norm_d = commons.clip_grad_value_(net_d.parameters(), None)
         scaler.step(optim_d)
 
-        with autocast(enabled=hps.train.fp16_run):
+        with autocast("cuda", enabled=hps.train.fp16_run):
             # Generator
             y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(y, y_hat)
             if net_dur_disc is not None:
                 y_dur_hat_r, y_dur_hat_g = net_dur_disc(hidden_x, x_mask, logw_, logw)
-            with autocast(enabled=False):
+            with autocast("cuda", enabled=False):
                 loss_dur = torch.sum(l_length.float())
                 loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
                 loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
@@ -390,17 +390,17 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 #   scalar_dict.update({"loss/dur_disc_g" : f"{losses_dur_disc_g}"})
                 #   scalar_dict.update({"loss/dur_gen" : f"{loss_dur_gen}"})
 
-                image_dict = {
-                    "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
-                    "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
-                    "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
-                    "all/attn": utils.plot_alignment_to_numpy(attn[0, 0].data.cpu().numpy())
-                }
-                utils.summarize(
-                    writer=writer,
-                    global_step=global_step,
-                    images=image_dict,
-                    scalars=scalar_dict)
+                # image_dict = {
+                #     "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
+                #     "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
+                #     "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
+                #     "all/attn": utils.plot_alignment_to_numpy(attn[0, 0].data.cpu().numpy())
+                # }
+                # utils.summarize(
+                #     writer=writer,
+                #     global_step=global_step,
+                #     images=image_dict,
+                #     scalars=scalar_dict)
 
             if global_step % hps.train.eval_interval == 0:
                 evaluate(hps, net_g, eval_loader, writer_eval)
