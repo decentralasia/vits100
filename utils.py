@@ -8,6 +8,7 @@ import subprocess
 import numpy as np
 from scipy.io.wavfile import read
 import torch
+import librosa
 
 MATPLOTLIB_FLAG = False
 
@@ -133,6 +134,30 @@ def plot_alignment_to_numpy(alignment, info=None):
 def load_wav_to_torch(full_path):
   sampling_rate, data = read(full_path)
   return torch.FloatTensor(data.astype(np.float32)), sampling_rate
+
+
+def load_wav_to_torch_2(full_path, target_sampling_rate):
+  original_sampling_rate, data = read(full_path)
+
+  # Ensure data is float32 for librosa
+  data = data.astype(np.float32)
+
+  # Resample if the original sampling rate is different from the target
+  if original_sampling_rate != target_sampling_rate:
+    # librosa.resample expects a mono or stereo waveform, with shape (n_channels, n_samples) or (n_samples,)
+    # The output of scipy.io.wavfile.read is (n_samples,) for mono or (n_samples, n_channels) for stereo.
+    # We need to transpose if it's stereo
+    if data.ndim > 1:
+        data = data.T # Transpose from (n_samples, n_channels) to (n_channels, n_samples)
+
+    data = librosa.resample(y=data, orig_sr=original_sampling_rate, target_sr=target_sampling_rate)
+
+    # If we transposed, we might want to transpose back to (n_samples, n_channels) if that's the desired output format
+    if data.ndim > 1:
+        data = data.T
+
+  return torch.FloatTensor(data), target_sampling_rate
+
 
 
 def load_filepaths_and_text(filename, split="|"):

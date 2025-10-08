@@ -7,7 +7,7 @@ import torch.utils.data
 
 import commons
 from mel_processing import spectrogram_torch, mel_spectrogram_torch, spec_to_mel_torch
-from utils import load_wav_to_torch, load_filepaths_and_text
+from utils import load_wav_to_torch_2, load_filepaths_and_text
 from text import text_to_sequence, cleaned_text_to_sequence
 
 
@@ -79,7 +79,7 @@ class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
 
     def get_audio(self, filename):
         # TODO : if linear spec exists convert to mel from existing linear spec
-        audio, sampling_rate = load_wav_to_torch(filename)
+        audio, sampling_rate = load_wav_to_torch_2(filename, target_sampling_rate=22050)
         if sampling_rate != self.sampling_rate:
             raise ValueError("{} {} SR doesn't match target {} SR".format(
                 sampling_rate, self.sampling_rate))
