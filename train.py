@@ -264,17 +264,18 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
     else:
         loader = train_loader
 
-    for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths) in enumerate(loader):
+    for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths, sid, tid) in enumerate(loader):
         if net_g.module.use_noise_scaled_mas:
             current_mas_noise_scale = net_g.module.mas_noise_scale_initial - net_g.module.noise_scale_delta * global_step
             net_g.module.current_mas_noise_scale = max(current_mas_noise_scale, 0.0)
         x, x_lengths = x.cuda(rank, non_blocking=True), x_lengths.cuda(rank, non_blocking=True)
         spec, spec_lengths = spec.cuda(rank, non_blocking=True), spec_lengths.cuda(rank, non_blocking=True)
         y, y_lengths = y.cuda(rank, non_blocking=True), y_lengths.cuda(rank, non_blocking=True)
+        sid, tid = sid.cuda(non_blocking=True), tid.cuda(non_blocking=True)
 
         with autocast(enabled=hps.train.fp16_run):
             y_hat, y_hat_mb, l_length, attn, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q), (
-                hidden_x, logw, logw_) = net_g(x, x_lengths, spec, spec_lengths)
+                hidden_x, logw, logw_) = net_g(x, x_lengths, spec, spec_lengths, sid=sid, tid=tid)
 
             if hps.model.use_mel_posterior_encoder or hps.data.use_mel_posterior_encoder:
                 mel = spec
@@ -428,6 +429,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 
 
 def evaluate(hps, generator, eval_loader, writer_eval):
+    return 
     generator.eval()
     with torch.no_grad():
         for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths) in enumerate(eval_loader):
