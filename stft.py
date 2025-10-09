@@ -210,6 +210,13 @@ class OnnxSTFT(torch.nn.Module):
             forward_basis *= fft_window
             inverse_basis *= fft_window
 
+            # precompute squared, normalized, padded window as buffer for ONNX-friendly window_sum
+            w_norm = fft_window / (torch.max(torch.abs(fft_window)) + 1e-8)
+            window_sq = (w_norm ** 2).view(1, 1, -1)
+            self.register_buffer('window_sq', window_sq)
+        else:
+            self.register_buffer('window_sq', torch.ones(1, 1, filter_length))
+
         self.register_buffer('forward_basis', forward_basis.float())
         self.register_buffer('inverse_basis', inverse_basis.float())
 
@@ -254,34 +261,13 @@ class OnnxSTFT(torch.nn.Module):
             padding=0)
 
         if self.window is not None:
-            window_sum = window_sumsquare(
-                self.window, magnitude.size(-1), hop_length=self.hop_length,
-                win_length=self.win_length, n_fft=self.filter_length,
-                dtype=np.float32)
-            # remove modulation effects
-            # Convert window_sum to tensor
-            window_sum = torch.from_numpy(window_sum).to(inverse_transform.device)
+            # Build window_sum dynamically using conv_transpose1d of ones with squared window kernel
+            frames = magnitude.size(-1)
+            ones = torch.ones(1, 1, frames, device=inverse_transform.device, dtype=inverse_transform.dtype)
+            window_sum = F.conv_transpose1d(ones, self.window_sq, stride=self.hop_length, padding=0)
 
-            # Ensure window_sum matches the size of inverse_transform in the time dimension
-            target_len = inverse_transform.shape[2]
-            if window_sum.shape[0] < target_len:
-                # Pad if window_sum is shorter
-                pad_amount = target_len - window_sum.shape[0]
-                window_sum = F.pad(window_sum, (0, pad_amount), mode='constant', value=1.0)
-            elif window_sum.shape[0] > target_len:
-                # Trim if window_sum is longer
-                window_sum = window_sum[:target_len]
-
-            # Add small epsilon to avoid division by zero
-            window_sum = window_sum + 1e-8
-
-            # Reshape window_sum to match inverse_transform: [1, 1, time]
-            window_sum = window_sum.view(1, 1, -1)
-
-            # Safe division with proper broadcasting
-            inverse_transform = inverse_transform / window_sum
-
-            # scale by hop ratio
+            # Safe division (broadcast along batch and channel) and hop ratio scaling
+            inverse_transform = inverse_transform / (window_sum + 1e-8)
             inverse_transform *= float(self.filter_length) / self.hop_length
 
         inverse_transform = inverse_transform[:, :, int(self.filter_length/2):]
