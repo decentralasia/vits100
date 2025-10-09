@@ -259,18 +259,26 @@ class OnnxSTFT(torch.nn.Module):
                 win_length=self.win_length, n_fft=self.filter_length,
                 dtype=np.float32)
             # remove modulation effects
-            # Convert window_sum to tensor and add small epsilon to avoid division by zero
+            # Convert window_sum to tensor
             window_sum = torch.from_numpy(window_sum).to(inverse_transform.device)
 
-            # Trim window_sum to match inverse_transform size before trimming
-            if window_sum.shape[0] > inverse_transform.shape[2]:
-                window_sum = window_sum[:inverse_transform.shape[2]]
+            # Ensure window_sum matches the size of inverse_transform in the time dimension
+            target_len = inverse_transform.shape[2]
+            if window_sum.shape[0] < target_len:
+                # Pad if window_sum is shorter
+                pad_amount = target_len - window_sum.shape[0]
+                window_sum = F.pad(window_sum, (0, pad_amount), mode='constant', value=1.0)
+            elif window_sum.shape[0] > target_len:
+                # Trim if window_sum is longer
+                window_sum = window_sum[:target_len]
 
-            # Add small epsilon and expand dims to match inverse_transform
+            # Add small epsilon to avoid division by zero
             window_sum = window_sum + 1e-8
-            window_sum = window_sum.unsqueeze(0).unsqueeze(0)
 
-            # Safe division - avoid advanced indexing
+            # Reshape window_sum to match inverse_transform: [1, 1, time]
+            window_sum = window_sum.view(1, 1, -1)
+
+            # Safe division with proper broadcasting
             inverse_transform = inverse_transform / window_sum
 
             # scale by hop ratio
