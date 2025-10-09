@@ -210,9 +210,8 @@ class OnnxSTFT(torch.nn.Module):
             forward_basis *= fft_window
             inverse_basis *= fft_window
 
-            # precompute squared, normalized, padded window as buffer for ONNX-friendly window_sum
-            w_norm = fft_window / (torch.max(torch.abs(fft_window)) + 1e-8)
-            window_sq = (w_norm ** 2).view(1, 1, -1)
+            # precompute squared padded window as buffer for ONNX-friendly window_sum (no normalization)
+            window_sq = (fft_window ** 2).view(1, 1, -1)
             self.register_buffer('window_sq', window_sq)
         else:
             self.register_buffer('window_sq', torch.ones(1, 1, filter_length))
@@ -266,12 +265,23 @@ class OnnxSTFT(torch.nn.Module):
             ones = torch.ones(1, 1, frames, device=inverse_transform.device, dtype=inverse_transform.dtype)
             window_sum = F.conv_transpose1d(ones, self.window_sq, stride=self.hop_length, padding=0)
 
+            # Apply the same trimming to window_sum and inverse_transform
+            half = int(self.filter_length / 2)
+            inverse_transform = inverse_transform[:, :, half:]
+            window_sum = window_sum[:, :, half:]
+            if half > 0:
+                inverse_transform = inverse_transform[:, :, :-half]
+                window_sum = window_sum[:, :, :-half]
+
             # Safe division (broadcast along batch and channel) and hop ratio scaling
             inverse_transform = inverse_transform / (window_sum + 1e-8)
             inverse_transform *= float(self.filter_length) / self.hop_length
-
-        inverse_transform = inverse_transform[:, :, int(self.filter_length/2):]
-        inverse_transform = inverse_transform[:, :, :-int(self.filter_length/2):]
+        else:
+            # If no window, still trim to be consistent with STFT
+            half = int(self.filter_length / 2)
+            inverse_transform = inverse_transform[:, :, half:]
+            if half > 0:
+                inverse_transform = inverse_transform[:, :, :-half]
 
         return inverse_transform
 
