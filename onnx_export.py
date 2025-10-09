@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 
 import commons
 import utils
-from data_utils import TextAudioLoader, TextAudioCollate, TextAudioSpeakerLoader, TextAudioSpeakerCollate
+from data_utils_multispeker_multitone import TextAudioSpeakerToneLoader, TextAudioSpeakerToneCollate
 from models import SynthesizerTrn
 from text.symbols import symbols
 
@@ -26,9 +26,10 @@ from scipy import signal
 
 
 #- Variable section
-PATH_TO_CONFIG = "./configs/PATH_TO_CONFIG.json" # path to config
-PATH_TO_MODEL = "PATH_TO_G_XXXX.pth" # path to model
-SPEAKER_ID = None # sid
+PATH_TO_CONFIG = "/mnt/d/VITS100/mbank/config.json"
+PATH_TO_MODEL = "/mnt/d/VITS100/mbank/G_64000.pth"  
+SPEAKER_ID = None 
+TONE_ID = None  
 SCALE_CONFIG = torch.FloatTensor([0.667, 1.0, 0.8]) # scales -> noise, noise_w, length
 OPSET_VERSION = 15
 
@@ -48,7 +49,6 @@ net_g = SynthesizerTrn(
     len(symbols),
     posterior_channels,
     hps.train.segment_size // hps.data.hop_length,
-    n_speakers=hps.data.n_speakers,
     is_onnx=True, # !
     **hps.model)
 
@@ -58,7 +58,7 @@ num_symbols = net_g.n_vocab
 num_speakers = net_g.n_speakers
 
 
-def infer_forward(text, text_lengths, scales, sid=None):
+def infer_forward(text, text_lengths, scales, sid, tid):
     noise_scale = scales[0]
     length_scale = scales[1]
     noise_scale_w = scales[2]
@@ -69,6 +69,7 @@ def infer_forward(text, text_lengths, scales, sid=None):
             length_scale=length_scale,
             noise_scale_w=noise_scale_w,
             sid=sid,
+            tid=tid,
     )[0].unsqueeze(1)
 
     return audio
@@ -84,7 +85,7 @@ net_g.eval()
 # dummy initialization
 dmy_text = torch.randint(low=0, high=num_symbols, size=(1, 50), dtype=torch.long)
 dmy_text_length = torch.LongTensor([dmy_text.size(1)])
-dummy_input = (dmy_text, dmy_text_length, SCALE_CONFIG, SPEAKER_ID) # infer_forward()
+dummy_input = (dmy_text, dmy_text_length, SCALE_CONFIG, SPEAKER_ID, TONE_ID) # infer_forward()
 
 
 # Export
@@ -94,7 +95,7 @@ torch.onnx.export(
         f="model.onnx",
         verbose=True,
         opset_version=OPSET_VERSION,
-        input_names=["input", "input_lengths", "scales", "sid"],
+        input_names=["input", "input_lengths", "scales", "sid", "tid"],
         output_names=["output"],
         dynamic_axes={
             "input": {0: "batch_size", 1: "phonemes"},
