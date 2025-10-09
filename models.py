@@ -1510,11 +1510,9 @@ class SynthesizerTrn(nn.Module):
         o, o_mb = self.dec(z_slice, g=g)
         return o, o_mb, l_length, attn, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q), (x, logw, logw_)
 
-    def infer(self, x, x_lengths, sid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None):
-        if self.n_speakers > 0:
-            g = self.emb_g(sid).unsqueeze(-1)  # [b, h, 1]
-        else:
-            g = None
+    def infer(self, x, x_lengths, sid=None, tid=None, noise_scale=1, length_scale=1, noise_scale_w=1., max_len=None):
+        g = self._build_g(sid=sid, tid=tid)
+
         x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths, g=g)
         if self.use_sdp:
             logw = self.dp(x, x_mask, g=g, reverse=True, noise_scale=noise_scale_w)
