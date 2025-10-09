@@ -28,8 +28,8 @@ from scipy import signal
 #- Variable section
 PATH_TO_CONFIG = "/mnt/d/VITS100/mbank/config.json"
 PATH_TO_MODEL = "/mnt/d/VITS100/mbank/G_64000.pth"  
-SPEAKER_ID = None 
-TONE_ID = None  
+SPEAKER_ID = 0  # Changed from None to 0
+TONE_ID = 0  # Changed from None to 0
 SCALE_CONFIG = torch.FloatTensor([0.667, 1.0, 0.8]) # scales -> noise, noise_w, length
 OPSET_VERSION = 15
 
@@ -85,7 +85,9 @@ net_g.eval()
 # dummy initialization
 dmy_text = torch.randint(low=0, high=num_symbols, size=(1, 50), dtype=torch.long)
 dmy_text_length = torch.LongTensor([dmy_text.size(1)])
-dummy_input = (dmy_text, dmy_text_length, SCALE_CONFIG, SPEAKER_ID, TONE_ID) # infer_forward()
+dmy_sid = torch.LongTensor([SPEAKER_ID])
+dmy_tid = torch.LongTensor([TONE_ID])
+dummy_input = (dmy_text, dmy_text_length, SCALE_CONFIG, dmy_sid, dmy_tid) # infer_forward()
 
 
 # Export
