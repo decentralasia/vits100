@@ -259,12 +259,19 @@ class OnnxSTFT(torch.nn.Module):
                 win_length=self.win_length, n_fft=self.filter_length,
                 dtype=np.float32)
             # remove modulation effects
-            approx_nonzero_indices = torch.from_numpy(
-                np.where(window_sum > tiny(window_sum))[0])
-            window_sum = torch.autograd.Variable(
-                torch.from_numpy(window_sum), requires_grad=False)
-            window_sum = window_sum.to(inverse_transform.device()) if magnitude.is_cuda else window_sum
-            inverse_transform[:, :, approx_nonzero_indices] /= window_sum[approx_nonzero_indices]
+            # Convert window_sum to tensor and add small epsilon to avoid division by zero
+            window_sum = torch.from_numpy(window_sum).to(inverse_transform.device)
+
+            # Trim window_sum to match inverse_transform size before trimming
+            if window_sum.shape[0] > inverse_transform.shape[2]:
+                window_sum = window_sum[:inverse_transform.shape[2]]
+
+            # Add small epsilon and expand dims to match inverse_transform
+            window_sum = window_sum + 1e-8
+            window_sum = window_sum.unsqueeze(0).unsqueeze(0)
+
+            # Safe division - avoid advanced indexing
+            inverse_transform = inverse_transform / window_sum
 
             # scale by hop ratio
             inverse_transform *= float(self.filter_length) / self.hop_length
