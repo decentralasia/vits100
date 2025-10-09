@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from scipy.io.wavfile import write
 import onnxruntime as ort
+import librosa
 
 import commons
 import utils
@@ -43,6 +44,12 @@ utils.load_checkpoint(PATH_TO_MODEL, net_g, None)
 
 # Load ONNX model
 ort_session = ort.InferenceSession(PATH_TO_ONNX)
+
+# Inspect ONNX inputs
+print("ONNX Model Inputs:")
+for input in ort_session.get_inputs():
+    print(f"  {input.name}: {input.shape}, {input.type}")
+print()
 
 # Prepare text
 def get_text(text, hps):
@@ -99,18 +106,26 @@ x_tst_np = x_tst.cpu().numpy()
 x_tst_lengths_np = x_tst_lengths.cpu().numpy()
 scales_np = scales.numpy()
 
+# Get actual input names from ONNX model
+onnx_input_names = [input.name for input in ort_session.get_inputs()]
+
 for sid, tid in configs:
-    sid_np = np.array([sid], dtype=np.int64) if sid is not None else None
-    tid_np = np.array([tid], dtype=np.int64) if tid is not None else None
-    
+    sid_np = np.array([sid], dtype=np.int64)
+    tid_np = np.array([tid], dtype=np.int64)
+
+    # Build inputs dict based on what the ONNX model expects
     ort_inputs = {
         "input": x_tst_np,
         "input_lengths": x_tst_lengths_np,
         "scales": scales_np,
-        "sid": sid_np,
-        "tid": tid_np,
     }
-    
+
+    # Only add sid/tid if they are in the model inputs
+    if "sid" in onnx_input_names:
+        ort_inputs["sid"] = sid_np
+    if "tid" in onnx_input_names:
+        ort_inputs["tid"] = tid_np
+
     audio = ort_session.run(None, ort_inputs)[0]
     audio = audio.squeeze()
     
@@ -143,4 +158,3 @@ for sid, tid in configs:
     print()
 
 print(f"All outputs saved to: {OUTPUT_DIR}/")
-
