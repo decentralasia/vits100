@@ -26,8 +26,8 @@ from scipy import signal
 
 
 #- Variable section
-PATH_TO_CONFIG = "/mnt/d/VITS100/mbank/config.json"
-PATH_TO_MODEL = "/mnt/d/VITS100/mbank/G_64000.pth"  
+PATH_TO_CONFIG = "/data/kenenbek/VITS100/logs/mbank/config.json"
+PATH_TO_MODEL = "/data/kenenbek/VITS100/logs/mbank/G_174600.pth"
 SPEAKER_ID = 0  # Changed from None to 0
 TONE_ID = 0  # Changed from None to 0
 SCALE_CONFIG = torch.FloatTensor([0.667, 1.0, 0.8]) # scales -> noise, noise_w, length
