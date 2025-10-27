@@ -264,7 +264,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
     else:
         loader = train_loader
 
-    for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths, sid, tid) in enumerate(loader):
+    for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths, sid, tid, lid) in enumerate(loader):
         if net_g.module.use_noise_scaled_mas:
             current_mas_noise_scale = net_g.module.mas_noise_scale_initial - net_g.module.noise_scale_delta * global_step
             net_g.module.current_mas_noise_scale = max(current_mas_noise_scale, 0.0)

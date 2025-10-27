@@ -22,8 +22,9 @@ _letters_ipa = "ɑɐɒæɓʙβɔɕçɗɖðʤəɘɚɛɜɝɞɟʄɡɠɢʛɦɧħɥʜ
 _pad        = '_'
 _punctuation = '!? ^,;.'
 _letters = 'АБВГДЕЁЖЗИЙКЛМНҢОӨПРСТУҮФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнңоөпрстуүфхцчшщъыьэюя'
+_paralinguistics = ["<inhale>", "<exhale>", "<yawn>", "<cough>"]
 
-symbols = [_pad] + list(_punctuation) + list(_letters)
+symbols = [_pad] + list(_punctuation) + list(_letters) + _paralinguistics
 
 # Special symbol ids
 SPACE_ID = symbols.index(" ")

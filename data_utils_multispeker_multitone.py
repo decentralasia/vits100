@@ -11,14 +11,14 @@ from utils import load_wav_to_torch_2, load_filepaths_and_text
 from text import text_to_sequence, cleaned_text_to_sequence
 
 
-class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
+class TextAudioSpeakerToneLangLoader(torch.utils.data.Dataset):
     """
         1) loads audio, speaker_id, tone, text pairs
         2) normalizes text and converts them to sequences of integers
         3) computes spectrograms from audio files.
     """
     def __init__(self, audiopaths_sid_text, hparams):
-        self.audiopaths_sid_tone_text = load_filepaths_and_text(audiopaths_sid_text)
+        self.audiopaths_sid_tone_lang_text = load_filepaths_and_text(audiopaths_sid_text)
         self.text_cleaners = hparams.text_cleaners
         self.max_wav_value = hparams.max_wav_value
         self.sampling_rate = hparams.sampling_rate
@@ -49,6 +49,10 @@ class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
             "strict": 1,
             "friendly": 2,
         }
+        self.language_dict = {
+            "ky": 0,
+            "ru": 1,
+        }
         self.hparams = hparams
 
     def _filter(self):
@@ -59,23 +63,24 @@ class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
         # wav_length ~= file_size / (wav_channels * Bytes per dim) = file_size / (1 * 2)
         # spec_length = wav_length // hop_length
 
-        audiopaths_sid_tone_text_new = []
+        audiopaths_sid_tone_lang_text_new = []
         lengths = []
-        for audiopath, sid, tone_id, real_text, text in self.audiopaths_sid_tone_text:
+        for audiopath, sid, tone_id, lid, real_text, text in self.audiopaths_sid_tone_lang_text:
             if self.min_text_len <= len(text) <= self.max_text_len:
-                audiopaths_sid_tone_text_new.append([audiopath, sid, tone_id, real_text, text])
+                audiopaths_sid_tone_lang_text_new.append([audiopath, sid, tone_id, lid, real_text, text])
                 lengths.append(os.path.getsize(audiopath) // (2 * self.hop_length))
-        self.audiopaths_sid_tone_text = audiopaths_sid_tone_text_new
+        self.audiopaths_sid_tone_lang_text = audiopaths_sid_tone_lang_text_new
         self.lengths = lengths
 
-    def get_audio_text_speaker_tone_pair(self, audiopath_sid_text):
+    def get_audio_text_speaker_tone_pair(self, audiopath_sid_tone_lang_text):
         # separate filename, speaker_id and text
-        audiopath, sid, tone, real_text, pronounced_text = audiopath_sid_text
+        audiopath, sid, tone, lid, real_text, pronounced_text = audiopath_sid_tone_lang_text
         text = self.get_text(pronounced_text)
         spec, wav = self.get_audio(audiopath)
         sid = self.get_sid(sid)
         tone_id = self.get_tone_id(tone)
-        return text, spec, wav, sid, tone_id
+        lid = self.get_lid(lid)
+        return text, spec, wav, sid, tone_id, lid
 
     def get_audio(self, filename):
         # TODO : if linear spec exists convert to mel from existing linear spec
@@ -132,11 +137,16 @@ class TextAudioSpeakerToneLoader(torch.utils.data.Dataset):
         tone_id = torch.LongTensor([int(tone_id)])
         return tone_id
 
+    def get_lid(self, lid):
+        l_id = self.language_dict[lid]
+        l_id = torch.LongTensor([int(l_id)])
+        return l_id
+
     def __getitem__(self, index):
-        return self.get_audio_text_speaker_tone_pair(self.audiopaths_sid_tone_text[index])
+        return self.get_audio_text_speaker_tone_lang_pair(self.audiopaths_sid_tone_lang_text[index])
 
     def __len__(self):
-        return len(self.audiopaths_sid_tone_text)
+        return len(self.audiopaths_sid_tone_lang_text)
 
 
 class TextAudioSpeakerToneCollate():
