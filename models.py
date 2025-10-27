@@ -1401,94 +1401,53 @@ class SynthesizerTrn(nn.Module):
         # My modifications (kenenbek)
         self.n_tones = n_tones
         self.n_languages = n_languages
-        # Optional conditioning embeddings. Each produces a vector in R^{gin_channels}.
-        self.emb_speaker = nn.Embedding(n_speakers, gin_channels) if (
-                n_speakers is not None and n_speakers > 1 and gin_channels > 0) else None
-        self.emb_tone = nn.Embedding(n_tones, gin_channels) if (
-                n_tones is not None and n_tones > 1 and gin_channels > 0) else None
-        self.emb_language = nn.Embedding(n_languages, gin_channels) if (
-                n_languages is not None and n_languages > 1 and gin_channels > 0) else None
+        # Conditioning embeddings. Each produces a vector in R^{gin_channels}.
+        self.emb_speaker = nn.Embedding(n_speakers, gin_channels)
+        self.emb_tone = nn.Embedding(n_tones, gin_channels)
+        self.emb_language = nn.Embedding(n_languages, gin_channels)
 
-        # Count how many embeddings exist and create projection accordingly
-        n_embeddings = sum([
-            self.emb_speaker is not None,
-            self.emb_tone is not None,
-            self.emb_language is not None
-        ])
+        # Project concatenated embeddings back to gin_channels
+        self.g_proj = nn.Conv1d(3 * gin_channels, gin_channels, 1)
 
-        if n_embeddings > 1:
-            self.g_proj = nn.Conv1d(n_embeddings * gin_channels, gin_channels, 1)
-        else:
-            self.g_proj = None
 
     def _build_g(self, sid=None, tid=None, lid=None):
         """
         Build conditioning vector g with shape [B, gin_channels, 1] using concatenation of
-        speaker, tone, and language embeddings. When multiple embeddings exist, they are
-        concatenated along channel dim and projected back to gin_channels.
+        speaker, tone, and language embeddings. All three embeddings are concatenated
+        along channel dim and projected back to gin_channels.
         If no id is provided, returns None.
         """
         if self.gin_channels == 0:
             return None
 
-        # Collect available embeddings to determine batch size and device
-        B = None
-        dev = None
-        dtype = None
+        # At least one id must be provided
+        if sid is None and tid is None and lid is None:
+            return None
 
-        # Determine batch size and device from any provided id
+        # Determine batch size, device, and dtype from any provided id
         if sid is not None:
             B = sid.shape[0]
             dev = sid.device
-            dtype = self.emb_speaker.weight.dtype if self.emb_speaker is not None else None
         elif tid is not None:
             B = tid.shape[0]
             dev = tid.device
-            dtype = self.emb_tone.weight.dtype if self.emb_tone is not None else None
-        elif lid is not None:
+        else:  # lid is not None
             B = lid.shape[0]
             dev = lid.device
-            dtype = self.emb_language.weight.dtype if self.emb_language is not None else None
-        else:
-            # No ids provided
-            return None
 
-        # If multiple embeddings exist, concatenate them (with zero fill if an id is missing)
-        if self.g_proj is not None:
-            emb_list = []
+        dtype = self.emb_speaker.weight.dtype
 
-            if self.emb_speaker is not None:
-                if sid is not None:
-                    emb_list.append(self.emb_speaker(sid))
-                else:
-                    emb_list.append(torch.zeros(B, self.gin_channels, device=dev, dtype=dtype))
+        # Get embeddings or zero-fill if id not provided
+        spk = self.emb_speaker(sid) if sid is not None else torch.zeros(B, self.gin_channels, device=dev, dtype=dtype)
+        tone = self.emb_tone(tid) if tid is not None else torch.zeros(B, self.gin_channels, device=dev, dtype=dtype)
+        lang = self.emb_language(lid) if lid is not None else torch.zeros(B, self.gin_channels, device=dev, dtype=dtype)
 
-            if self.emb_tone is not None:
-                if tid is not None:
-                    emb_list.append(self.emb_tone(tid))
-                else:
-                    emb_list.append(torch.zeros(B, self.gin_channels, device=dev, dtype=dtype))
+        # Concatenate all embeddings and project
+        g_cat = torch.cat([spk, tone, lang], dim=1).unsqueeze(-1)  # [B, 3*gin_channels, 1]
+        g = self.g_proj(g_cat)  # [B, gin_channels, 1]
 
-            if self.emb_language is not None:
-                if lid is not None:
-                    emb_list.append(self.emb_language(lid))
-                else:
-                    emb_list.append(torch.zeros(B, self.gin_channels, device=dev, dtype=dtype))
+        return g
 
-            g_cat = torch.cat(emb_list, dim=1).unsqueeze(-1)  # [B, n_emb*gin, 1]
-            g = self.g_proj(g_cat)  # [B, gin, 1]
-            return g
-
-        # Only one embedding exists -> return that embedding if id provided
-        if (self.emb_speaker is not None) and (sid is not None):
-            return self.emb_speaker(sid).unsqueeze(-1)
-        if (self.emb_tone is not None) and (tid is not None):
-            return self.emb_tone(tid).unsqueeze(-1)
-        if (self.emb_language is not None) and (lid is not None):
-            return self.emb_language(lid).unsqueeze(-1)
-
-        # No conditioning available
-        return None
 
     def forward(self, x, x_lengths, y, y_lengths, sid=None, tid=None, lid=None):
         # x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths)
