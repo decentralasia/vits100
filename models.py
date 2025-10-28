@@ -1416,14 +1416,27 @@ class SynthesizerTrn(nn.Module):
         speaker, tone, and language embeddings. All three embeddings are concatenated
         along channel dim and projected back to gin_channels.
         """
+        # Debug: Input shapes
+        print(f"[_build_g] sid shape: {sid.shape}")
+        print(f"[_build_g] tid shape: {tid.shape}")
+        print(f"[_build_g] lid shape: {lid.shape}")
+
         # Get embeddings
         spk = self.emb_speaker(sid)    # [B, gin_channels]
+        print(f"[_build_g] spk shape after embedding: {spk.shape}")
+
         tone = self.emb_tone(tid)      # [B, gin_channels]
+        print(f"[_build_g] tone shape after embedding: {tone.shape}")
+
         lang = self.emb_language(lid)  # [B, gin_channels]
+        print(f"[_build_g] lang shape after embedding: {lang.shape}")
 
         # Concatenate all embeddings and project
         g_cat = torch.cat([spk, tone, lang], dim=1).unsqueeze(-1)  # [B, 3*gin_channels, 1]
+        print(f"[_build_g] g_cat shape after concat and unsqueeze: {g_cat.shape}")
+
         g = self.g_proj(g_cat)  # [B, gin_channels, 1]
+        print(f"[_build_g] g shape after projection: {g.shape}")
 
         return g
 
