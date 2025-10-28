@@ -36,7 +36,7 @@
       "add_blank": true,
 
       "n_speakers": 2,
-      "n_tones": 2,
+      "n_tones": 3,
       "n_languages": 2,
 
       "cleaned_text": true
@@ -44,7 +44,7 @@
     "model": {
       "gin_channels": 128,
       "n_speakers": 2,
-      "n_tones": 2,
+      "n_tones": 3,
       "n_languages": 2,
 
       "monotonic_align": "ma",
