@@ -1391,8 +1391,6 @@ class SynthesizerTrn(nn.Module):
         else:
             self.dp = DurationPredictor(hidden_channels, 256, 3, 0.5, gin_channels=gin_channels)
 
-        if n_speakers > 0: # original : n_speakers > 1 -> AttributeError: 'SynthesizerTrn' object has no attribute 'emb_g'
-            self.emb_g = nn.Embedding(n_speakers, gin_channels)
 
         #- options for MAS : "sma_v1", "sma_v2", "sma_triton", "ma"
         self.monotonic_align = kwargs.get("monotonic_align", "ma").lower()
@@ -1514,8 +1512,8 @@ class SynthesizerTrn(nn.Module):
     # comment - choihkk : Assuming the use of the ResidualCouplingTransformersLayer2 module, it seems that voice conversion is possible
     def voice_conversion(self, y, y_lengths, sid_src, sid_tgt):
         assert self.n_speakers > 0, "n_speakers have to be larger than 0."
-        g_src = self.emb_g(sid_src).unsqueeze(-1)
-        g_tgt = self.emb_g(sid_tgt).unsqueeze(-1)
+        g_src = self.emb_speaker(sid_src).unsqueeze(-1)
+        g_tgt = self.emb_speaker(sid_tgt).unsqueeze(-1)
         z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g_src)
         z_p = self.flow(z, y_mask, g=g_src)
         z_hat = self.flow(z_p, y_mask, g=g_tgt, reverse=True)

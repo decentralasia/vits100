@@ -235,10 +235,16 @@ def run(rank, n_gpus, hps):
         if net_dur_disc is not None:  # 2의 경우
             _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "DUR_*.pth"),
                                                        net_dur_disc, optim_dur_disc)
-        global_step = (epoch_str - 1) * len(train_loader)
+        # epoch_str is actually the iteration/global_step from the checkpoint
+        global_step = epoch_str
+        epoch_str = max(1, global_step // len(train_loader))
+        if rank == 0:
+            logger.info(f"Resuming from global_step: {global_step}, epoch: {epoch_str}")
     except:
         epoch_str = 1
         global_step = 0
+        if rank == 0:
+            logger.info("Starting training from scratch")
 
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str - 2)
