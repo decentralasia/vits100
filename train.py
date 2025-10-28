@@ -267,6 +267,9 @@ def run(rank, n_gpus, hps):
     if rank == 0:
         wandb.finish()
 
+    # Clean up distributed process group
+    dist.destroy_process_group()
+
 
 def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loaders, logger, writers):
     net_g, net_d, net_dur_disc = nets
@@ -411,16 +414,20 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 scalar_dict.update({"loss/d_g/{}".format(i): v for i, v in enumerate(losses_disc_g)})
 
                 # Log to wandb
+                def get_scalar(value):
+                    """Convert tensor or scalar to Python float"""
+                    return value.item() if torch.is_tensor(value) else float(value)
+
                 wandb_dict = {
-                    "train/loss_gen_total": loss_gen_all.item(),
-                    "train/loss_disc_total": loss_disc_all.item(),
-                    "train/loss_gen": loss_gen.item(),
-                    "train/loss_disc": loss_disc.item(),
-                    "train/loss_fm": loss_fm.item(),
-                    "train/loss_mel": loss_mel.item(),
-                    "train/loss_dur": loss_dur.item(),
-                    "train/loss_kl": loss_kl.item(),
-                    "train/loss_subband": loss_subband.item(),
+                    "train/loss_gen_total": get_scalar(loss_gen_all),
+                    "train/loss_disc_total": get_scalar(loss_disc_all),
+                    "train/loss_gen": get_scalar(loss_gen),
+                    "train/loss_disc": get_scalar(loss_disc),
+                    "train/loss_fm": get_scalar(loss_fm),
+                    "train/loss_mel": get_scalar(loss_mel),
+                    "train/loss_dur": get_scalar(loss_dur),
+                    "train/loss_kl": get_scalar(loss_kl),
+                    "train/loss_subband": get_scalar(loss_subband),
                     "train/learning_rate": lr,
                     "train/grad_norm_d": grad_norm_d,
                     "train/grad_norm_g": grad_norm_g,
@@ -429,24 +436,24 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 
                 if net_dur_disc is not None:
                     wandb_dict.update({
-                        "train/loss_dur_disc_total": loss_dur_disc_all.item(),
-                        "train/loss_dur_gen": loss_dur_gen.item(),
+                        "train/loss_dur_disc_total": get_scalar(loss_dur_disc_all),
+                        "train/loss_dur_gen": get_scalar(loss_dur_gen),
                         "train/grad_norm_dur_disc": grad_norm_dur_disc,
                     })
 
                 # Log individual generator and discriminator losses
                 for i, v in enumerate(losses_gen):
-                    wandb_dict[f"train/loss_gen_{i}"] = v.item()
+                    wandb_dict[f"train/loss_gen_{i}"] = get_scalar(v)
                 for i, v in enumerate(losses_disc_r):
-                    wandb_dict[f"train/loss_disc_r_{i}"] = v.item()
+                    wandb_dict[f"train/loss_disc_r_{i}"] = get_scalar(v)
                 for i, v in enumerate(losses_disc_g):
-                    wandb_dict[f"train/loss_disc_g_{i}"] = v.item()
+                    wandb_dict[f"train/loss_disc_g_{i}"] = get_scalar(v)
 
                 if net_dur_disc is not None:
                     for i, v in enumerate(losses_dur_disc_r):
-                        wandb_dict[f"train/loss_dur_disc_r_{i}"] = v.item()
+                        wandb_dict[f"train/loss_dur_disc_r_{i}"] = get_scalar(v)
                     for i, v in enumerate(losses_dur_disc_g):
-                        wandb_dict[f"train/loss_dur_disc_g_{i}"] = v.item()
+                        wandb_dict[f"train/loss_dur_disc_g_{i}"] = get_scalar(v)
 
                 wandb.log(wandb_dict, step=global_step)
 

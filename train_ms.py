@@ -243,6 +243,9 @@ def run(rank, n_gpus, hps):
         if net_dur_disc is not None:
             scheduler_dur_disc.step()
 
+    # Clean up distributed process group
+    dist.destroy_process_group()
+
 
 def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loaders, logger, writers):
     net_g, net_d, net_dur_disc = nets
