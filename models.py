@@ -1410,37 +1410,16 @@ class SynthesizerTrn(nn.Module):
         self.g_proj = nn.Conv1d(3 * gin_channels, gin_channels, 1)
 
 
-    def _build_g(self, sid=None, tid=None, lid=None):
+    def _build_g(self, sid, tid, lid):
         """
-        Build conditioning vector g with shape [B, gin_channels, 1] using concatenation of
+        Build conditioning vector g with shape [B, gin_channels] using concatenation of
         speaker, tone, and language embeddings. All three embeddings are concatenated
         along channel dim and projected back to gin_channels.
-        If no id is provided, returns None.
         """
-        if self.gin_channels == 0:
-            return None
-
-        # At least one id must be provided
-        if sid is None and tid is None and lid is None:
-            return None
-
-        # Determine batch size, device, and dtype from any provided id
-        if sid is not None:
-            B = sid.shape[0]
-            dev = sid.device
-        elif tid is not None:
-            B = tid.shape[0]
-            dev = tid.device
-        else:  # lid is not None
-            B = lid.shape[0]
-            dev = lid.device
-
-        dtype = self.emb_speaker.weight.dtype
-
-        # Get embeddings or zero-fill if id not provided
-        spk = self.emb_speaker(sid) if sid is not None else torch.zeros(B, self.gin_channels, device=dev, dtype=dtype)
-        tone = self.emb_tone(tid) if tid is not None else torch.zeros(B, self.gin_channels, device=dev, dtype=dtype)
-        lang = self.emb_language(lid) if lid is not None else torch.zeros(B, self.gin_channels, device=dev, dtype=dtype)
+        # Get embeddings
+        spk = self.emb_speaker(sid)    # [B, gin_channels]
+        tone = self.emb_tone(tid)      # [B, gin_channels]
+        lang = self.emb_language(lid)  # [B, gin_channels]
 
         # Concatenate all embeddings and project
         g_cat = torch.cat([spk, tone, lang], dim=1).unsqueeze(-1)  # [B, 3*gin_channels, 1]
