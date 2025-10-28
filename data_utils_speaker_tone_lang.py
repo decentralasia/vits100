@@ -185,7 +185,6 @@ class TextAudioSpeakerToneLangCollate():
         wav_padded.zero_()
         for i in range(len(ids_sorted_decreasing)):
             row = batch[ids_sorted_decreasing[i]]
-            print(row[5], "LID ROW")
             text = row[0]
             text_padded[i, :text.size(0)] = text
             text_lengths[i] = text.size(0)
