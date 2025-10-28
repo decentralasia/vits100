@@ -14,6 +14,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.amp import autocast, GradScaler
 import tqdm
 from pqmf import PQMF
+import wandb
 import commons
 import utils
 from data_utils import DistributedBucketSampler
@@ -64,6 +65,26 @@ def run(rank, n_gpus, hps):
         utils.check_git_hash(hps.model_dir)
         writer = SummaryWriter(log_dir=hps.model_dir)
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval"))
+
+        # Initialize wandb
+        wandb.init(
+            project=hps.wandb_project if hasattr(hps, 'wandb_project') else "vits2-training",
+            name=hps.model_dir.split('/')[-1],
+            config={
+                "learning_rate": hps.train.learning_rate,
+                "epochs": hps.train.epochs,
+                "batch_size": hps.train.batch_size,
+                "n_speakers": hps.data.n_speakers,
+                "n_tones": hps.data.n_tones,
+                "n_languages": hps.data.n_languages,
+                "segment_size": hps.train.segment_size,
+                "filter_length": hps.data.filter_length,
+                "hop_length": hps.data.hop_length,
+                "win_length": hps.data.win_length,
+                "mel_fmin": hps.data.mel_fmin,
+                "mel_fmax": hps.data.mel_fmax,
+            }
+        )
 
     if os.name == 'nt':
         dist.init_process_group(backend='gloo', init_method='env://', world_size=n_gpus, rank=rank)
@@ -200,11 +221,11 @@ def run(rank, n_gpus, hps):
     else:
         optim_dur_disc = None
 
-    net_g = DDP(net_g, device_ids=[rank], find_unused_parameters=True)
-    net_d = DDP(net_d, device_ids=[rank], find_unused_parameters=True)
+    net_g = DDP(net_g, device_ids=[rank], find_unused_parameters=False)
+    net_d = DDP(net_d, device_ids=[rank], find_unused_parameters=False)
 
     if net_dur_disc is not None:  # 2의 경우
-        net_dur_disc = DDP(net_dur_disc, device_ids=[rank], find_unused_parameters=True)
+        net_dur_disc = DDP(net_dur_disc, device_ids=[rank], find_unused_parameters=False)
 
     try:
         _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g,
@@ -241,6 +262,10 @@ def run(rank, n_gpus, hps):
         scheduler_d.step()
         if net_dur_disc is not None:
             scheduler_dur_disc.step()
+
+    # Finish wandb run
+    if rank == 0:
+        wandb.finish()
 
 
 def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loaders, logger, writers):
@@ -384,6 +409,46 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 scalar_dict.update({"loss/g/{}".format(i): v for i, v in enumerate(losses_gen)})
                 scalar_dict.update({"loss/d_r/{}".format(i): v for i, v in enumerate(losses_disc_r)})
                 scalar_dict.update({"loss/d_g/{}".format(i): v for i, v in enumerate(losses_disc_g)})
+
+                # Log to wandb
+                wandb_dict = {
+                    "train/loss_gen_total": loss_gen_all.item(),
+                    "train/loss_disc_total": loss_disc_all.item(),
+                    "train/loss_gen": loss_gen.item(),
+                    "train/loss_disc": loss_disc.item(),
+                    "train/loss_fm": loss_fm.item(),
+                    "train/loss_mel": loss_mel.item(),
+                    "train/loss_dur": loss_dur.item(),
+                    "train/loss_kl": loss_kl.item(),
+                    "train/loss_subband": loss_subband.item(),
+                    "train/learning_rate": lr,
+                    "train/grad_norm_d": grad_norm_d,
+                    "train/grad_norm_g": grad_norm_g,
+                    "train/epoch": epoch,
+                }
+
+                if net_dur_disc is not None:
+                    wandb_dict.update({
+                        "train/loss_dur_disc_total": loss_dur_disc_all.item(),
+                        "train/loss_dur_gen": loss_dur_gen.item(),
+                        "train/grad_norm_dur_disc": grad_norm_dur_disc,
+                    })
+
+                # Log individual generator and discriminator losses
+                for i, v in enumerate(losses_gen):
+                    wandb_dict[f"train/loss_gen_{i}"] = v.item()
+                for i, v in enumerate(losses_disc_r):
+                    wandb_dict[f"train/loss_disc_r_{i}"] = v.item()
+                for i, v in enumerate(losses_disc_g):
+                    wandb_dict[f"train/loss_disc_g_{i}"] = v.item()
+
+                if net_dur_disc is not None:
+                    for i, v in enumerate(losses_dur_disc_r):
+                        wandb_dict[f"train/loss_dur_disc_r_{i}"] = v.item()
+                    for i, v in enumerate(losses_dur_disc_g):
+                        wandb_dict[f"train/loss_dur_disc_g_{i}"] = v.item()
+
+                wandb.log(wandb_dict, step=global_step)
 
                 # if net_dur_disc is not None: # - 보류?
                 #   scalar_dict.update({"loss/dur_disc_r" : f"{losses_dur_disc_r}"})

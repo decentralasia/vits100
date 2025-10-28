@@ -1416,45 +1416,20 @@ class SynthesizerTrn(nn.Module):
         speaker, tone, and language embeddings. All three embeddings are concatenated
         along channel dim and projected back to gin_channels.
         """
-        # Debug: Input shapes and values
-        print(f"[_build_g] sid shape: {sid.shape}, values: {sid}, min: {sid.min()}, max: {sid.max()}")
-        print(f"[_build_g] tid shape: {tid.shape}, values: {tid}, min: {tid.min()}, max: {tid.max()}")
-        print(f"[_build_g] lid shape: {lid.shape}, values: {lid}, min: {lid.min()}, max: {lid.max()}")
-        print(f"[_build_g] Embedding sizes - speakers: {self.emb_speaker.num_embeddings}, tones: {self.emb_tone.num_embeddings}, languages: {self.emb_language.num_embeddings}")
-
-        # Check for out-of-bounds indices
-        if sid.max() >= self.emb_speaker.num_embeddings:
-            print(f"[_build_g] ERROR: sid contains out-of-bounds index! Max sid: {sid.max()}, but only {self.emb_speaker.num_embeddings} speakers")
-        if tid.max() >= self.emb_tone.num_embeddings:
-            print(f"[_build_g] ERROR: tid contains out-of-bounds index! Max tid: {tid.max()}, but only {self.emb_tone.num_embeddings} tones")
-        if lid.max() >= self.emb_language.num_embeddings:
-            print(f"[_build_g] ERROR: lid contains out-of-bounds index! Max lid: {lid.max()}, but only {self.emb_language.num_embeddings} languages")
-
-        # Get embeddings
         spk = self.emb_speaker(sid)    # [B, gin_channels]
-        print(f"[_build_g] spk shape after embedding: {spk.shape}")
-
         tone = self.emb_tone(tid)      # [B, gin_channels]
-        print(f"[_build_g] tone shape after embedding: {tone.shape}")
-
         lang = self.emb_language(lid)  # [B, gin_channels]
-        print(f"[_build_g] lang shape after embedding: {lang.shape}")
 
         # Concatenate all embeddings and project
         g_cat = torch.cat([spk, tone, lang], dim=1).unsqueeze(-1)  # [B, 3*gin_channels, 1]
-        print(f"[_build_g] g_cat shape after concat and unsqueeze: {g_cat.shape}")
 
         g = self.g_proj(g_cat)  # [B, gin_channels, 1]
-        print(f"[_build_g] g shape after projection: {g.shape}")
-
         return g
 
 
     def forward(self, x, x_lengths, y, y_lengths, sid=None, tid=None, lid=None):
         # x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths)
-        print("kotok")
         g = self._build_g(sid=sid, tid=tid, lid=lid)
-        print("yotok")
         x, m_p, logs_p, x_mask = self.enc_p(x, x_lengths, g=g)  # vits2?
         z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g)
         z_p = self.flow(z, y_mask, g=g)
