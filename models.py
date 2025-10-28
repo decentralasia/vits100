@@ -1416,10 +1416,19 @@ class SynthesizerTrn(nn.Module):
         speaker, tone, and language embeddings. All three embeddings are concatenated
         along channel dim and projected back to gin_channels.
         """
-        # Debug: Input shapes
-        print(f"[_build_g] sid shape: {sid.shape}")
-        print(f"[_build_g] tid shape: {tid.shape}")
-        print(f"[_build_g] lid shape: {lid.shape}")
+        # Debug: Input shapes and values
+        print(f"[_build_g] sid shape: {sid.shape}, values: {sid}, min: {sid.min()}, max: {sid.max()}")
+        print(f"[_build_g] tid shape: {tid.shape}, values: {tid}, min: {tid.min()}, max: {tid.max()}")
+        print(f"[_build_g] lid shape: {lid.shape}, values: {lid}, min: {lid.min()}, max: {lid.max()}")
+        print(f"[_build_g] Embedding sizes - speakers: {self.emb_speaker.num_embeddings}, tones: {self.emb_tone.num_embeddings}, languages: {self.emb_language.num_embeddings}")
+
+        # Check for out-of-bounds indices
+        if sid.max() >= self.emb_speaker.num_embeddings:
+            print(f"[_build_g] ERROR: sid contains out-of-bounds index! Max sid: {sid.max()}, but only {self.emb_speaker.num_embeddings} speakers")
+        if tid.max() >= self.emb_tone.num_embeddings:
+            print(f"[_build_g] ERROR: tid contains out-of-bounds index! Max tid: {tid.max()}, but only {self.emb_tone.num_embeddings} tones")
+        if lid.max() >= self.emb_language.num_embeddings:
+            print(f"[_build_g] ERROR: lid contains out-of-bounds index! Max lid: {lid.max()}, but only {self.emb_language.num_embeddings} languages")
 
         # Get embeddings
         spk = self.emb_speaker(sid)    # [B, gin_channels]
