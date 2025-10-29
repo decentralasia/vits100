@@ -482,12 +482,12 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 
             if global_step % hps.train.eval_interval == 0:
                 evaluate(hps, net_g, eval_loader, writer_eval)
-                utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch,
+                utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, global_step,
                                       os.path.join(hps.model_dir, "G_{}.pth".format(global_step)))
-                utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch,
+                utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, global_step,
                                       os.path.join(hps.model_dir, "D_{}.pth".format(global_step)))
                 if net_dur_disc is not None:
-                    utils.save_checkpoint(net_dur_disc, optim_dur_disc, hps.train.learning_rate, epoch,
+                    utils.save_checkpoint(net_dur_disc, optim_dur_disc, hps.train.learning_rate, global_step,
                                           os.path.join(hps.model_dir, "DUR_{}.pth".format(global_step)))
 
                 prev_g = os.path.join(hps.model_dir, "G_{}.pth".format(global_step - 3 * hps.train.eval_interval))
@@ -507,63 +507,76 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
 
 
 def evaluate(hps, generator, eval_loader, writer_eval):
-    return
     generator.eval()
+
+    # Initialize metric accumulators
+    total_mel_loss = 0.0
+    total_kl_loss = 0.0
+    total_dur_loss = 0.0
+    num_batches = 0
+
     with torch.no_grad():
-        for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths) in enumerate(eval_loader):
+        for batch_idx, (x, x_lengths, spec, spec_lengths, y, y_lengths, sid, tid, lid) in enumerate(eval_loader):
             x, x_lengths = x.cuda(0), x_lengths.cuda(0)
             spec, spec_lengths = spec.cuda(0), spec_lengths.cuda(0)
             y, y_lengths = y.cuda(0), y_lengths.cuda(0)
+            sid, tid, lid = sid.cuda(0), tid.cuda(0), lid.cuda(0)
 
-            # remove else
-            x = x[:1]
-            x_lengths = x_lengths[:1]
-            spec = spec[:1]
-            spec_lengths = spec_lengths[:1]
-            y = y[:1]
-            y_lengths = y_lengths[:1]
-            break
+            # Forward pass through the model to compute losses
+            y_hat, y_hat_mb, l_length, attn, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q), _ = generator(
+                x, x_lengths, spec, spec_lengths, sid=sid, tid=tid, lid=lid
+            )
 
-        y_hat, y_hat_mb, attn, mask, *_ = generator.module.infer(x, x_lengths, max_len=1000)
-        y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
+            # Compute mel spectrogram
+            if hps.model.use_mel_posterior_encoder or hps.data.use_mel_posterior_encoder:
+                mel = spec
+            else:
+                mel = spec_to_mel_torch(
+                    spec.float(),
+                    hps.data.filter_length,
+                    hps.data.n_mel_channels,
+                    hps.data.sampling_rate,
+                    hps.data.mel_fmin,
+                    hps.data.mel_fmax)
 
-        if hps.model.use_mel_posterior_encoder or hps.data.use_mel_posterior_encoder:  # 2의 경우
-            mel = spec
-        else:
-            mel = spec_to_mel_torch(
-                spec,
+            y_mel = commons.slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length)
+            y_hat_mel = mel_spectrogram_torch(
+                y_hat.squeeze(1),
                 hps.data.filter_length,
                 hps.data.n_mel_channels,
                 hps.data.sampling_rate,
+                hps.data.hop_length,
+                hps.data.win_length,
                 hps.data.mel_fmin,
-                hps.data.mel_fmax)
-        y_hat_mel = mel_spectrogram_torch(
-            y_hat.squeeze(1).float(),
-            hps.data.filter_length,
-            hps.data.n_mel_channels,
-            hps.data.sampling_rate,
-            hps.data.hop_length,
-            hps.data.win_length,
-            hps.data.mel_fmin,
-            hps.data.mel_fmax
-        )
-    image_dict = {
-        "gen/mel": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy())
-    }
-    audio_dict = {
-        "gen/audio": y_hat[0, :, :y_hat_lengths[0]]
-    }
-    if global_step == 0:
-        image_dict.update({"gt/mel": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy())})
-        audio_dict.update({"gt/audio": y[0, :, :y_lengths[0]]})
+                hps.data.mel_fmax
+            )
 
-    utils.summarize(
-        writer=writer_eval,
-        global_step=global_step,
-        images=image_dict,
-        audios=audio_dict,
-        audio_sampling_rate=hps.data.sampling_rate
-    )
+            # Calculate losses
+            mel_loss = F.l1_loss(y_mel, y_hat_mel)
+            kl_loss_val = kl_loss(z_p, logs_q, m_p, logs_p, z_mask)
+            dur_loss = torch.sum(l_length.float())
+
+            # Accumulate losses
+            total_mel_loss += mel_loss.item()
+            total_kl_loss += kl_loss_val.item()
+            total_dur_loss += dur_loss.item()
+            num_batches += 1
+
+
+    # Compute average losses
+    avg_mel_loss = total_mel_loss / num_batches
+    avg_kl_loss = total_kl_loss / num_batches
+    avg_dur_loss = total_dur_loss / num_batches
+
+    # Log validation metrics to wandb
+    wandb_eval_dict = {
+        "val/mel_loss": avg_mel_loss,
+        "val/kl_loss": avg_kl_loss,
+        "val/dur_loss": avg_dur_loss,
+        "val/total_loss": avg_mel_loss * hps.train.c_mel + avg_kl_loss * hps.train.c_kl + avg_dur_loss,
+    }
+    wandb.log(wandb_eval_dict, step=global_step)
+
     generator.train()
 
 
