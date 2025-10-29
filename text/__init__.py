@@ -7,6 +7,12 @@ from text.symbols import symbols
 _symbol_to_id = {s: i for i, s in enumerate(symbols)}
 _id_to_symbol = {i: s for i, s in enumerate(symbols)}
 
+import re
+def tokenize_pronounced_text(pronounced_text):
+    pattern = re.compile(r'<[^>]*>|.')
+
+    symbols = re.findall(pattern, pronounced_text)
+    return symbols
 
 def text_to_sequence(text, cleaner_names):
   '''Converts a string of text to a sequence of IDs corresponding to the symbols in the text.
@@ -19,6 +25,7 @@ def text_to_sequence(text, cleaner_names):
   sequence = []
 
   clean_text = _clean_text(text, cleaner_names)
+  clean_text = tokenize_pronounced_text(clean_text)
   for symbol in clean_text:
     if symbol not in _symbol_to_id.keys():
       raise ValueError("Not found symbol: {}".format(symbol))
